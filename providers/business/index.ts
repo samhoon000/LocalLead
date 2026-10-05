@@ -1,13 +1,13 @@
 import type { BusinessDataProvider } from "./BusinessDataProvider";
 import { MockBusinessDataProvider } from "./mock";
 import { GeoapifyBusinessDataProvider } from "./geoapify";
+import { getBusinessProviderName, getGeoapifyKey } from "@/lib/server-env";
 
 export function getBusinessProvider(): BusinessDataProvider {
-  const provider = (process.env.BUSINESS_DATA_PROVIDER ?? "mock").toLowerCase();
+  const provider = getBusinessProviderName();
   if (provider === "geoapify") {
-    const key = process.env.GEOAPIFY_API_KEY ?? process.env.BUSINESS_DATA_PROVIDER_API_KEY;
-    if (!key) throw new Error("GEOAPIFY_API_KEY is required when BUSINESS_DATA_PROVIDER=geoapify");
-    return new GeoapifyBusinessDataProvider(key);
+    return new GeoapifyBusinessDataProvider(getGeoapifyKey());
   }
-  return new MockBusinessDataProvider();
+  if (provider === "mock" && process.env.NODE_ENV !== "production") return new MockBusinessDataProvider();
+  throw new Error(`Unsupported BUSINESS_DATA_PROVIDER: ${provider}`);
 }

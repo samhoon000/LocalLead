@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "db:migrate": "node scripts/apply-migration.mjs",
     "verify:connections": "node scripts/verify-connections.mjs",
     "test:live": "node scripts/live-e2e.mjs",
@@ -15,12 +16,12 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.75.0",
-    "@tanstack/react-table": "^8.21.3",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
     "next": "^15.5.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "server-only": "^0.0.1",
     "tailwind-merge": "^2.5.5",
     "xlsx": "^0.18.5",
     "zod": "^3.24.1"

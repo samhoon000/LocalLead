@@ -30,12 +30,12 @@ copy .env.example .env
 npm run dev
 ```
 
-Open `http://localhost:3000`. The defaults (`DEMO_MODE=true`, `BUSINESS_DATA_PROVIDER=mock`) require no credentials. Demo records are kept in the git-ignored `.locallead/demo-db.json` file so searches survive route recompilation and local restarts.
+Open `http://localhost:3000`. For credential-free local development, explicitly set `DEMO_MODE=true` and `BUSINESS_DATA_PROVIDER=mock`. Demo records are kept in the git-ignored `.locallead/demo-db.json` file so searches survive route recompilation and local restarts. Production rejects demo mode and never falls back to local files.
 
 ## Supabase setup
 
 1. Create a Supabase project.
-2. In the SQL editor, run `supabase/migrations/202610050001_initial_schema.sql`, or link a Supabase CLI project and run `supabase db push`.
+2. Set `DATABASE_URL` to the port 5432 Session Pooler URL and run `npm run db:migrate`. The migration runner applies every pending file in `supabase/migrations` exactly once.
 3. Copy the project URL and anon key into `.env`.
 4. Copy the service-role key into the server-only variable. Never expose or prefix it with `NEXT_PUBLIC_`.
 5. Set `DEMO_MODE=false` in production. API clients must send a Supabase access token as `Authorization: Bearer <token>`.
@@ -50,8 +50,10 @@ The service-role client is instantiated only in server modules. RLS additionally
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser-safe | Supabase anonymous key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only | Privileged server persistence |
 | `DATABASE_URL` | Server only | Exact Supabase session-pooler URL for migrations |
-| `BUSINESS_DATA_PROVIDER` | Server only | `mock` (default) or `geoapify` |
+| `BUSINESS_DATA_PROVIDER` | Server only | `geoapify` in production; `mock` is development-only |
+| `BUSINESS_DATA_PROVIDER_API_KEY` | Server only | Optional generic fallback for the Geoapify key |
 | `GEOAPIFY_API_KEY` | Server only | Geoapify geocoding and places key |
+| `WEBSITE_ENRICHMENT_API_KEY` | Server only | Reserved for a future external enrichment provider; currently unused |
 | `WEBSITE_ANALYSIS_ENABLED` | Server only | Enables public website analysis |
 | `WEBSITE_ANALYSIS_TIMEOUT_MS` | Server only | Per-site request timeout |
 | `PROVIDER_REQUEST_DELAY_MS` | Server only | Compliant delay between provider calls |
@@ -66,7 +68,7 @@ Set:
 
 ```dotenv
 BUSINESS_DATA_PROVIDER=geoapify
-GEOAPIFY_API_KEY=your_server_side_key
+GEOAPIFY_API_KEY=
 ```
 
 The adapter geocodes the selected location, searches within the configured radius, applies a conservative category map, delays requests, and retries transient failures with exponential backoff. It does not bypass quotas or access controls. Provider-supplied data varies; LocalLead does not invent ratings, reviews, or business size.
@@ -99,13 +101,15 @@ The in-process job runner is deliberately behind a service boundary. For serverl
 npm run dev      # local app
 npm run build    # production compilation
 npm run lint     # static analysis
+npm run typecheck # strict TypeScript check
 npm test         # unit + repository flow tests
+npm run db:migrate # apply pending Supabase migrations
 npm start        # serve production build
 ```
 
 ## Production deployment
 
-Deploy to any Node-compatible Next.js host. Configure all environment variables in the host, apply the migration first, set `DEMO_MODE=false`, enable Supabase Auth, and move discovery execution to a durable job runner. Restrict provider keys by server IP/domain where supported, set quota alerts, publish privacy/terms pages, and review retention requirements before handling real business data.
+Deploy to Vercel's Node.js runtime, configure the environment variables in the project, apply migrations before the first production request, and keep `DEMO_MODE=false`. Discovery is claimed atomically and scheduled with Next.js `after()` inside a request-scoped function with a 300-second maximum duration; progress and results live in Supabase, never process memory. Restrict provider keys where supported, set quota alerts, publish privacy/terms pages, and review retention requirements before handling real business data.
 
 ## Safety notes
 

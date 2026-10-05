@@ -1,6 +1,7 @@
 import type { BusinessDataProvider, BusinessSearchResult, NormalizedBusiness } from "./BusinessDataProvider";
 import type { SearchInput } from "@/lib/types";
 import { retry, sleep } from "@/lib/utils";
+import { numberSetting } from "@/lib/server-env";
 
 type Feature = { properties: Record<string, unknown>; geometry?: { coordinates?: [number, number] } };
 const categoryMap: Record<string, string> = {
@@ -11,16 +12,24 @@ const categoryMap: Record<string, string> = {
 };
 
 function text(p: Record<string, unknown>, key: string) { const value = p[key]; return typeof value === "string" ? value : undefined; }
+function websiteUrl(p: Record<string, unknown>) {
+  const raw = text(p, "website") ?? text(p, "contact:website");
+  if (!raw) return undefined;
+  const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try { const parsed = new URL(candidate); return ["http:", "https:"].includes(parsed.protocol) ? parsed.toString() : undefined; } catch { return undefined; }
+}
 function normalize(feature: Feature, input: SearchInput): NormalizedBusiness {
   const p = feature.properties;
-  const website = text(p, "website");
+  const website = websiteUrl(p);
   const placeId = text(p, "place_id") ?? `${text(p, "name")}-${text(p, "formatted")}`;
+  const longitude = feature.geometry?.coordinates?.[0], latitude = feature.geometry?.coordinates?.[1];
   return {
     provider: "geoapify", providerBusinessId: placeId, name: text(p, "name") ?? "Unnamed business", category: input.category,
     country: text(p, "country") ?? input.country, state: text(p, "state") ?? input.state, city: text(p, "city") ?? input.city,
     postalCode: text(p, "postcode"), address: text(p, "formatted") ?? `${input.city}, ${input.country}`,
-    longitude: feature.geometry?.coordinates?.[0], latitude: feature.geometry?.coordinates?.[1], phone: text(p, "contact:phone") ?? text(p, "phone"),
-    email: text(p, "contact:email") ?? text(p, "email"), websiteUrl: website, providerUrl: text(p, "datasource") as string | undefined,
+    longitude, latitude, phone: text(p, "contact:phone") ?? text(p, "phone"),
+    email: text(p, "contact:email") ?? text(p, "email"), websiteUrl: website,
+    mapsUrl: latitude !== undefined && longitude !== undefined ? `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=18/${latitude}/${longitude}` : undefined,
     businessStatus: "open"
   };
 }
@@ -36,7 +45,7 @@ export class GeoapifyBusinessDataProvider implements BusinessDataProvider {
     const geocodeUrl = new URL("https://api.geoapify.com/v1/geocode/search");
     geocodeUrl.searchParams.set("text", [input.city, input.state, input.country].filter(Boolean).join(", "));
     geocodeUrl.searchParams.set("limit", "1"); geocodeUrl.searchParams.set("apiKey", this.apiKey);
-    const retries = Number(process.env.PROVIDER_MAX_RETRIES ?? 3); const delay = Number(process.env.PROVIDER_REQUEST_DELAY_MS ?? 250);
+    const retries = numberSetting("PROVIDER_MAX_RETRIES", 3, 0, 5); const delay = numberSetting("PROVIDER_REQUEST_DELAY_MS", 250, 0, 5000);
     const geo = await retry(async () => { const r = await fetch(geocodeUrl); if (!r.ok) throw new Error(`Geoapify geocoding failed (${r.status})`); return r.json(); }, retries, delay) as { features?: Feature[] };
     const point = geo.features?.[0]?.geometry?.coordinates;
     if (!point) throw new Error("Location could not be resolved by Geoapify.");

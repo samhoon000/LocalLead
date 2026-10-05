@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { Client } from "pg";
 
 function loadEnv(file = ".env") {
@@ -20,7 +20,6 @@ async function connect(config) {
   catch (error) { await candidate.end().catch(() => undefined); throw error; }
 }
 let client;
-const migration = readFileSync("supabase/migrations/202610050001_initial_schema.sql", "utf8");
 try {
   client = await connect({ ...baseConfig, host: parsedDatabaseUrl.hostname });
 } catch {
@@ -34,18 +33,30 @@ try {
   if (!client) throw new Error("The direct database endpoint is unreachable and no pooler region accepted the configured credentials. Add the exact Supabase pooler connection string as DATABASE_URL.");
 }
 try {
-  const exists = await client.query("select to_regclass('public.searches') is not null as installed");
-  if (!exists.rows[0].installed) {
+  const initialExists = await client.query("select to_regclass('public.searches') is not null as installed");
+  await client.query("create table if not exists public.schema_migrations (version text primary key, applied_at timestamptz not null default now())");
+  if (initialExists.rows[0].installed) await client.query("insert into public.schema_migrations(version) values ($1) on conflict do nothing", ["202610050001_initial_schema.sql"]);
+  const applied = [];
+  const skipped = [];
+  for (const version of readdirSync("supabase/migrations").filter((name) => name.endsWith(".sql")).sort()) {
+    const recorded = await client.query("select 1 from public.schema_migrations where version = $1", [version]);
+    if (recorded.rowCount) { skipped.push(version); continue; }
+    const migration = readFileSync(`supabase/migrations/${version}`, "utf8");
     await client.query("begin");
-    try { await client.query(migration); await client.query("commit"); }
-    catch (error) { await client.query("rollback"); throw error; }
+    try {
+      await client.query(migration);
+      await client.query("insert into public.schema_migrations(version) values ($1)", [version]);
+      await client.query("commit");
+      applied.push(version);
+    } catch (error) { await client.query("rollback"); throw error; }
   }
   const tables = await client.query("select tablename, rowsecurity from pg_tables where schemaname = 'public' and tablename = any($1::text[]) order by tablename", [["profiles","searches","search_filters","discovery_jobs","businesses","website_analyses","lead_scores","lead_notes","job_events"]]);
   const indexes = await client.query("select indexname from pg_indexes where schemaname = 'public' and indexname = any($1::text[]) order by indexname", [["businesses_search_id_idx","businesses_website_status_idx","businesses_lead_score_idx","businesses_city_idx","businesses_country_idx","businesses_category_idx","businesses_provider_id_idx","searches_user_created_idx","discovery_jobs_search_idx","job_events_job_created_idx"]]);
   const policies = await client.query("select tablename, policyname from pg_policies where schemaname = 'public' order by tablename, policyname");
   const foreignKeys = await client.query("select c.conname, c.conrelid::regclass::text as child_table, c.confrelid::regclass::text as parent_table from pg_constraint c join pg_namespace n on n.oid = c.connamespace where n.nspname = 'public' and c.contype = 'f' order by child_table, c.conname");
   const constraints = await client.query("select count(*)::int as count from pg_constraint c join pg_namespace n on n.oid = c.connamespace where n.nspname = 'public' and c.contype in ('f','u','p','c')");
-  console.log(JSON.stringify({ migration: exists.rows[0].installed ? "already_applied" : "applied", tables: tables.rows, indexes: indexes.rows.map((row) => row.indexname), policies: policies.rows, foreignKeys: foreignKeys.rows, constraints: constraints.rows[0].count }, null, 2));
+  const triggers = await client.query("select event_object_table as table_name, trigger_name from information_schema.triggers where trigger_schema = 'public' order by event_object_table, trigger_name");
+  console.log(JSON.stringify({ migrations: { applied, skipped }, tables: tables.rows, indexes: indexes.rows.map((row) => row.indexname), policies: policies.rows, foreignKeys: foreignKeys.rows, constraints: constraints.rows[0].count, triggers: triggers.rows }, null, 2));
 } finally {
   await client.end();
 }
