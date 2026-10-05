@@ -1,5 +1,6 @@
 import type { WebsiteAnalysis } from "@/lib/types";
 import { id } from "@/lib/utils";
+import { numberSetting } from "@/lib/server-env";
 
 const directoryHosts = ["facebook.com", "instagram.com", "yelp.com", "google.com", "maps.google.com", "tripadvisor.com", "yellowpages.com"];
 
@@ -19,7 +20,7 @@ export async function analyzeWebsite(businessId: string, url: string): Promise<W
     return finish(businessId, flags);
   }
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Number(process.env.WEBSITE_ANALYSIS_TIMEOUT_MS ?? 8000));
+  const timeout = setTimeout(() => controller.abort(), numberSetting("WEBSITE_ANALYSIS_TIMEOUT_MS", 8000, 1000, 15000));
   try {
     const response = await fetch(url, { signal: controller.signal, redirect: "follow", headers: { "User-Agent": "LocalLeadWebsiteChecker/1.0 (+public-site-analysis)" } });
     if (!response.ok) throw new Error(`Website returned HTTP ${response.status}`);
