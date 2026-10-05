@@ -17,7 +17,7 @@ LocalLead is a production-oriented Next.js application for discovering local bus
 
 ## Prerequisites
 
-- Node.js 20 or newer
+- Node.js 24 (matches the Vercel runtime declared in `package.json`)
 - npm
 - A Supabase project for persistent/production use (optional in demo mode)
 - A Geoapify API key only when using the real provider
